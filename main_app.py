@@ -1,40 +1,53 @@
+# Library imports
 import numpy as np
-from flask import Flask, request, jsonify
+import streamlit as st
+import cv2
 from keras.models import load_model
-from PIL import Image
-import io
+import tensorflow as tf
 
-app = Flask(__name__)
+# Loading the Model
+try:
+    model = load_model('plant_disease_model.h5')
+except OSError:
+    st.error("Model file not found. Please ensure 'plant_disease_model.h5' is in the correct path.")
 
-# Load your pre-trained model
-model = load_model('plant_disease_model.h5')
+# Name of Classes
+CLASS_NAMES = ('Tomato-Bacterial_spot', 'Potato-Barly blight', 'Corn-Common_rust')
 
-# Define class names for predictions
-CLASS_NAMES = ['Tomato-Bacterial_spot', 'Potato-Barly blight', 'Corn-Common_rust']
+# Setting Title of App
+st.title("Plant Disease Detection")
+st.markdown("Upload an image of the plant leaf")
 
+# Uploading the plant image
+plant_image = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+submit = st.button('Predict Disease')
 
-# Prediction endpoint
-@app.route('/predict', methods=['POST'])
-def predict():
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
+# On predict button click
+if submit:
+    if plant_image is not None:
+        try:
+            # Convert the uploaded image into OpenCV format
+            file_bytes = np.asarray(bytearray(plant_image.read()), dtype=np.uint8)
+            opencv_image = cv2.imdecode(file_bytes, 1)
 
-    file = request.files['file']
+            # Display the uploaded image
+            st.image(opencv_image, channels="BGR")
+            st.write("Original Image Shape:", opencv_image.shape)
 
-    # Read the image in the file
-    img = Image.open(file.stream)
+            # Resizing the image to match model input
+            opencv_image = cv2.resize(opencv_image, (256, 256))
 
-    # Resize and preprocess the image
-    img = img.resize((256, 256))
-    img_array = np.array(img) / 255.0
-    img_array = np.expand_dims(img_array, axis=0)
+            # Normalize the image for prediction
+            opencv_image = opencv_image / 255.0  # Normalize
 
-    # Make a prediction
-    prediction = model.predict(img_array)
-    result = CLASS_NAMES[np.argmax(prediction)]
+            # Reshaping image to include batch dimension (1, 256, 256, 3)
+            opencv_image = np.expand_dims(opencv_image, axis=0)
 
-    return jsonify({'result': result})
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+            # Make Prediction
+            Y_pred = model.predict(opencv_image)
+            result = CLASS_NAMES[np.argmax(Y_pred)]
+            st.title(f"This is a {result.split('-')[0]} leaf with {result.split('-')[1]}.")
+        except Exception as e:
+            st.error(f"Error processing image: {e}")
+    else:
+        st.warning("Please upload an image first.")
