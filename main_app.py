@@ -1,53 +1,51 @@
-# Library imports
+from flask import Flask, request, jsonify
 import numpy as np
-import streamlit as st
 import cv2
 from keras.models import load_model
-import tensorflow as tf
 
-# Loading the Model
-try:
-    model = load_model('plant_disease_model.h5')
-except OSError:
-    st.error("Model file not found. Please ensure 'plant_disease_model.h5' is in the correct path.")
+# Initialize the Flask app
+app = Flask(__name__)
 
-# Name of Classes
+# Load your pre-trained model
+model = load_model('plant_disease_model.h5')
+
+# Define the classes for plant disease detection
 CLASS_NAMES = ('Tomato-Bacterial_spot', 'Potato-Barly blight', 'Corn-Common_rust')
 
-# Setting Title of App
-st.title("Plant Disease Detection")
-st.markdown("Upload an image of the plant leaf")
+# Define the root route to check if the server is up
+@app.route('/')
+def index():
+    return "Plant Disease Detection API is running!"
 
-# Uploading the plant image
-plant_image = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-submit = st.button('Predict Disease')
+# Define a route for plant disease prediction
+@app.route('/predict', methods=['POST'])
+def predict():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    # Get the uploaded image file
+    plant_image = request.files['file']
+    
+    # Convert the file to an OpenCV image
+    file_bytes = np.asarray(bytearray(plant_image.read()), dtype=np.uint8)
+    opencv_image = cv2.imdecode(file_bytes, 1)
 
-# On predict button click
-if submit:
-    if plant_image is not None:
-        try:
-            # Convert the uploaded image into OpenCV format
-            file_bytes = np.asarray(bytearray(plant_image.read()), dtype=np.uint8)
-            opencv_image = cv2.imdecode(file_bytes, 1)
+    # Resize the image to the required input shape for the model
+    opencv_image = cv2.resize(opencv_image, (256, 256))
 
-            # Display the uploaded image
-            st.image(opencv_image, channels="BGR")
-            st.write("Original Image Shape:", opencv_image.shape)
+    # Expand dimensions to match the input shape for the model
+    opencv_image = np.expand_dims(opencv_image, axis=0)
 
-            # Resizing the image to match model input
-            opencv_image = cv2.resize(opencv_image, (256, 256))
+    # Predict the disease
+    Y_pred = model.predict(opencv_image)
+    result = CLASS_NAMES[np.argmax(Y_pred)]
 
-            # Normalize the image for prediction
-            opencv_image = opencv_image / 255.0  # Normalize
+    # Return the prediction result
+    return jsonify({
+        'prediction': result,
+        'message': f"This is a {result.split('-')[0]} leaf with {result.split('-')[1]}."
+    })
 
-            # Reshaping image to include batch dimension (1, 256, 256, 3)
-            opencv_image = np.expand_dims(opencv_image, axis=0)
-
-            # Make Prediction
-            Y_pred = model.predict(opencv_image)
-            result = CLASS_NAMES[np.argmax(Y_pred)]
-            st.title(f"This is a {result.split('-')[0]} leaf with {result.split('-')[1]}.")
-        except Exception as e:
-            st.error(f"Error processing image: {e}")
-    else:
-        st.warning("Please upload an image first.")
+# Run the Flask app (if this is the main file being run)
+if __name__ == "__main__":
+    app.run(debug=True)
